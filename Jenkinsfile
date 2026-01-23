@@ -72,15 +72,8 @@ pipeline {
             // Archive test results
             junit allowEmptyResults: true, testResults: 'test-results.xml'
             
-            // Publish HTML coverage report
-            publishHTML(target: [
-                allowMissing: true,
-                alwaysLinkToLastBuild: true,
-                keepAll: true,
-                reportDir: 'htmlcov',
-                reportFiles: 'index.html',
-                reportName: 'Coverage Report'
-            ])
+            // Archive coverage HTML report as artifacts instead
+            archiveArtifacts artifacts: 'htmlcov/**/*', allowEmptyArchive: true
         }
         
         success {
