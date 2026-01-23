@@ -18,6 +18,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+## Comment for jenkins git trigger test ##
+
 # In-memory database
 tasks_db = []
 task_id_counter = 1
