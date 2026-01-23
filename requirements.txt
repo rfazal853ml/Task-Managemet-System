@@ -1,4 +1,8 @@
+
 fastapi
 uvicorn
 pydantic
 python-multipart
+pytest
+pytest-cov
+httpx
