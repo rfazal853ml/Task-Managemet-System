@@ -1,7 +1,7 @@
 // Use environment-based API URL
 const API_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:8000/api'
-    : 'https://your-backend-name.onrender.com/api'; // Update this after deploying backend
+    : 'https://task-managemet-system-production.up.railway.app/api';
 
 let currentFilter = 'all';
 
