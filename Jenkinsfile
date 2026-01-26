@@ -49,24 +49,39 @@ pipeline {
             }
         }
         
-        stage('Deploy to Railway') {
+        stage('Merge to Master') {
             when {
-                branch 'master'
+                branch 'development'
                 expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
             }
             steps {
-                echo '✅ Tests passed! Railway will auto-deploy from GitHub push'
-                echo 'Backend: https://task-managemet-system-production.up.railway.app'
+                echo '✅ All tests passed! Merging to master for deployment...'
+                script {
+                    bat '''
+                        git config user.name "Jenkins CI"
+                        git config user.email "jenkins@yourdomain.com"
+                        git checkout master
+                        git merge development --no-ff -m "Auto-merge: Tests passed on development"
+                        git push origin master
+                    '''
+                }
             }
         }
         
-        stage('Deploy to Vercel') {
+        stage('Deployment Notification') {
             when {
-                branch 'master'
+                branch 'development'
                 expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
             }
             steps {
-                echo '✅ Tests passed! Vercel will auto-deploy from GitHub push'
+                echo '╔════════════════════════════════════════╗'
+                echo '║   🚀 DEPLOYING TO PRODUCTION 🚀       ║'
+                echo '╚════════════════════════════════════════╝'
+                echo 'Railway auto-deploying backend from master...'
+                echo 'Vercel auto-deploying frontend from master...'
+                echo ''
+                echo 'Live URLs:'
+                echo 'Backend:  https://task-managemet-system-production.up.railway.app'
                 echo 'Frontend: https://task-management-system-iota-five.vercel.app'
             }
         }
@@ -89,6 +104,8 @@ pipeline {
         failure {
             echo '╔════════════════════════════════════════╗'
             echo '║   ❌ PIPELINE FAILED ❌               ║'
+            echo '║   Code NOT merged to master           ║'
+            echo '║   Production NOT updated              ║'
             echo '╚════════════════════════════════════════╝'
         }
     }
