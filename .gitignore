@@ -1,2 +1,27 @@
-**/venv/
+# Python
+backend/venv/
+backend/__pycache__/
 **/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+**/venv/
+
+# Vercel
+.vercel
+frontend/.vercel
+
+# Environment
+.env
+*.env
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,24 +1,26 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
 import uvicorn
+import os
 
 app = FastAPI(title="Task Management API")
 
-# CORS middleware
+# CORS middleware - Allow your frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:8000", 
+        "https://your-vercel-app.vercel.app",  # Update this with your actual Vercel URL
+        "*"  # Remove this in production, specify exact origins
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-## Comment for jenkins git trigger test ##
 
 # In-memory database
 tasks_db = []
@@ -27,8 +29,8 @@ task_id_counter = 1
 class Task(BaseModel):
     title: str
     description: Optional[str] = ""
-    status: str = "todo"  # todo, in-progress, done
-    priority: str = "medium"  # low, medium, high
+    status: str = "todo"
+    priority: str = "medium"
     
 class TaskResponse(BaseModel):
     id: int
@@ -46,7 +48,11 @@ class TaskUpdate(BaseModel):
 
 @app.get("/")
 async def root():
-    return FileResponse("static/index.html")
+    return {
+        "message": "Task Management API is running",
+        "docs": "/docs",
+        "health": "/api/health"
+    }
 
 @app.get("/api/health")
 async def health_check():
@@ -106,8 +112,6 @@ async def delete_task(task_id: int):
     tasks_db = [t for t in tasks_db if t["id"] != task_id]
     return None
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)

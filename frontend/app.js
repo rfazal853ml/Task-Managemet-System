@@ -1,4 +1,8 @@
-const API_URL = '/api';
+// Use environment-based API URL
+const API_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:8000/api'
+    : 'https://your-backend-name.onrender.com/api'; // Update this after deploying backend
+
 let currentFilter = 'all';
 
 // DOM elements
@@ -63,7 +67,7 @@ function renderTasks(tasks) {
     if (tasks.length === 0) {
         const emptyState = `
             <div class="empty-state">
-                <div class="empty-state-icon">📭</div>
+                <div class="empty-state-icon">🔭</div>
                 <p>No tasks yet</p>
             </div>
         `;
@@ -89,13 +93,13 @@ function renderTasks(tasks) {
     
     // Show empty state for empty columns
     if (todoContainer.children.length === 0) {
-        todoContainer.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div></div>';
+        todoContainer.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔭</div></div>';
     }
     if (inProgressContainer.children.length === 0) {
-        inProgressContainer.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div></div>';
+        inProgressContainer.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔭</div></div>';
     }
     if (doneContainer.children.length === 0) {
-        doneContainer.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div></div>';
+        doneContainer.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔭</div></div>';
     }
 }
 
