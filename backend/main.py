@@ -13,9 +13,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
-        "http://localhost:8000", 
-        "https://your-vercel-app.vercel.app",  # Update this with your actual Vercel URL
-        "*"  # Remove this in production, specify exact origins
+        "http://localhost:5500",
+        "https://task-management-system-iota-five.vercel.app",  # Your Vercel URL
+        "https://task-management-system-84f6brwau-rfazal853ml-8866s-projects.vercel.app",  # Preview URL
+        "https://*.vercel.app",  # Allow all Vercel deployments
     ],
     allow_credentials=True,
     allow_methods=["*"],
