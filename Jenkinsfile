@@ -11,26 +11,33 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
-                echo "Building PR from ${env.CHANGE_BRANCH} to ${env.CHANGE_TARGET}"
+                script {
+                    echo "Building branch: ${env.GIT_BRANCH}"
+                    if (env.CHANGE_ID) {
+                        echo "PR #${env.CHANGE_ID}: ${env.CHANGE_BRANCH} → ${env.CHANGE_TARGET}"
+                    }
+                }
             }
         }
         
-        stage('Verify Structure') {
-            steps {
-                bat '''
-                    dir
-                    echo.
-                    dir backend
-                '''
-            }
-        }
-        
-        stage('Install Dependencies') {
+        stage('Setup Virtual Environment') {
             steps {
                 bat '''
                     cd backend
+                    echo === Creating virtual environment ===
+                    python -m venv venv
+                    echo.
+                    echo === Activating virtual environment ===
+                    call venv\\Scripts\\activate.bat
+                    echo.
+                    echo === Upgrading pip ===
                     python -m pip install --upgrade pip
+                    echo.
+                    echo === Installing requirements ===
                     pip install -r requirements.txt
+                    echo.
+                    echo === Installed packages ===
+                    pip list
                 '''
             }
         }
@@ -39,6 +46,8 @@ pipeline {
             steps {
                 bat '''
                     cd backend
+                    call venv\\Scripts\\activate.bat
+                    echo === Running pytest ===
                     pytest test_api.py -v --cov=main --cov-report=term
                 '''
             }
@@ -53,7 +62,7 @@ pipeline {
             }
             steps {
                 script {
-                    echo "✅ Tests passed! Auto-merging PR..."
+                    echo "✅ Tests passed! Merging PR..."
                     
                     withCredentials([usernamePassword(
                         credentialsId: env.GITHUB_CREDENTIALS,
@@ -63,7 +72,6 @@ pipeline {
                         bat """
                             git config user.name "Jenkins CI"
                             git config user.email "jenkins@cicd.local"
-                            
                             git fetch origin
                             git checkout main
                             git pull origin main
@@ -74,14 +82,47 @@ pipeline {
                 }
             }
         }
+        
+        stage('Merge Direct Push') {
+            when {
+                allOf {
+                    expression { env.CHANGE_ID == null }
+                    anyOf {
+                        branch 'development'
+                        expression { env.GIT_BRANCH == 'origin/development' }
+                    }
+                }
+            }
+            steps {
+                script {
+                    echo "✅ Tests passed! Merging to main..."
+                    
+                    withCredentials([usernamePassword(
+                        credentialsId: env.GITHUB_CREDENTIALS,
+                        usernameVariable: 'GIT_USERNAME',
+                        passwordVariable: 'GIT_PASSWORD'
+                    )]) {
+                        bat """
+                            git config user.name "Jenkins CI"
+                            git config user.email "jenkins@cicd.local"
+                            git fetch origin
+                            git checkout main
+                            git pull origin main
+                            git merge origin/development --no-ff -m "Auto-merge: Tests Passed ✓"
+                            git push https://%GIT_USERNAME%:%GIT_PASSWORD%@github.com/%REPO_OWNER%/%REPO_NAME%.git main
+                        """
+                    }
+                }
+            }
+        }
     }
     
     post {
         success {
-            echo '✅ Tests passed and PR merged!'
+            echo '✅ BUILD SUCCESSFUL - Tests passed and merged!'
         }
         failure {
-            echo '❌ Tests failed - PR NOT merged'
+            echo '❌ BUILD FAILED - Tests failed, NOT merged'
         }
         always {
             cleanWs()
