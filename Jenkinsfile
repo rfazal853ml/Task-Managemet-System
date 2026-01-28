@@ -56,7 +56,7 @@ pipeline {
         stage('Merge PR') {
             when {
                 allOf {
-                    expression { env.CHANGE_TARGET == 'main' }
+                    expression { env.CHANGE_TARGET == 'master' }
                     expression { env.CHANGE_BRANCH == 'development' }
                 }
             }
@@ -73,10 +73,10 @@ pipeline {
                             git config user.name "Jenkins CI"
                             git config user.email "jenkins@cicd.local"
                             git fetch origin
-                            git checkout main
-                            git pull origin main
+                            git checkout master
+                            git pull origin master
                             git merge origin/development --no-ff -m "Auto-merge PR: Tests Passed ✓"
-                            git push https://%GIT_USERNAME%:%GIT_PASSWORD%@github.com/%REPO_OWNER%/%REPO_NAME%.git main
+                            git push https://%GIT_USERNAME%:%GIT_PASSWORD%@github.com/%REPO_OWNER%/%REPO_NAME%.git master
                         """
                     }
                 }
@@ -95,7 +95,7 @@ pipeline {
             }
             steps {
                 script {
-                    echo "✅ Tests passed! Merging to main..."
+                    echo "✅ Tests passed! Merging to master..."
                     
                     withCredentials([usernamePassword(
                         credentialsId: env.GITHUB_CREDENTIALS,
@@ -106,10 +106,10 @@ pipeline {
                             git config user.name "Jenkins CI"
                             git config user.email "jenkins@cicd.local"
                             git fetch origin
-                            git checkout main
-                            git pull origin main
+                            git checkout master
+                            git pull origin master
                             git merge origin/development --no-ff -m "Auto-merge: Tests Passed ✓"
-                            git push https://%GIT_USERNAME%:%GIT_PASSWORD%@github.com/%REPO_OWNER%/%REPO_NAME%.git main
+                            git push https://%GIT_USERNAME%:%GIT_PASSWORD%@github.com/%REPO_OWNER%/%REPO_NAME%.git master
                         """
                     }
                 }
