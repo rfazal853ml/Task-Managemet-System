@@ -8,13 +8,34 @@ pipeline {
     }
     
     stages {
+        stage('Verify PR Context') {
+            steps {
+                script {
+                    echo "=== Build Information ==="
+                    echo "Branch: ${env.GIT_BRANCH}"
+                    echo "PR Number: ${env.CHANGE_ID}"
+                    echo "Source Branch: ${env.CHANGE_BRANCH}"
+                    echo "Target Branch: ${env.CHANGE_TARGET}"
+                    echo "========================="
+                    
+                    // Only proceed if this is a PR
+                    if (!env.CHANGE_ID) {
+                        echo "⚠️ This is not a Pull Request. Pipeline will skip merge stage."
+                    } else {
+                        echo "✓ This is PR #${env.CHANGE_ID}"
+                    }
+                }
+            }
+        }
+        
         stage('Checkout') {
             steps {
                 checkout scm
                 script {
-                    echo "Building branch: ${env.GIT_BRANCH}"
                     if (env.CHANGE_ID) {
-                        echo "PR #${env.CHANGE_ID}: ${env.CHANGE_BRANCH} → ${env.CHANGE_TARGET}"
+                        echo "Building PR #${env.CHANGE_ID}: ${env.CHANGE_BRANCH} → ${env.CHANGE_TARGET}"
+                    } else {
+                        echo "Building branch: ${env.GIT_BRANCH}"
                     }
                 }
             }
@@ -48,21 +69,23 @@ pipeline {
                     cd backend
                     call venv\\Scripts\\activate.bat
                     echo === Running pytest ===
-                    pytest test_api.py -v --cov=main --cov-report=term
+                    pytest test_api.py -v --cov=main --cov-report=term --cov-report=xml
                 '''
             }
         }
         
-        stage('Merge PR') {
+        stage('Auto-Merge PR to Master') {
             when {
                 allOf {
-                    expression { env.CHANGE_TARGET == 'master' }
+                    expression { env.CHANGE_ID != null }
                     expression { env.CHANGE_BRANCH == 'development' }
+                    expression { env.CHANGE_TARGET == 'master' }
                 }
             }
             steps {
                 script {
-                    echo "✅ Tests passed! Merging PR..."
+                    echo "✅ All tests passed!"
+                    echo "Auto-merging PR #${env.CHANGE_ID}: development → master"
                     
                     withCredentials([usernamePassword(
                         credentialsId: env.GITHUB_CREDENTIALS,
@@ -72,44 +95,30 @@ pipeline {
                         bat """
                             git config user.name "Jenkins CI"
                             git config user.email "jenkins@cicd.local"
+                            
+                            echo === Fetching all branches ===
                             git fetch origin
-                            git checkout master
+                            
+                            echo === Available branches ===
+                            git branch -a
+                            
+                            echo === Checking out master ===
+                            git checkout master || git checkout -b master origin/master
+                            
+                            echo === Pulling latest master ===
                             git pull origin master
-                            git merge origin/development --no-ff -m "Auto-merge PR: Tests Passed ✓"
+                            
+                            echo === Merging development into master ===
+                            git merge origin/development --no-ff -m "Auto-merge PR #${env.CHANGE_ID}: development -> master [Jenkins CI - Tests Passed ✓]"
+                            
+                            echo === Pushing to master ===
                             git push https://%GIT_USERNAME%:%GIT_PASSWORD%@github.com/%REPO_OWNER%/%REPO_NAME%.git master
-                        """
-                    }
-                }
-            }
-        }
-        
-        stage('Merge Direct Push') {
-            when {
-                allOf {
-                    expression { env.CHANGE_ID == null }
-                    anyOf {
-                        branch 'development'
-                        expression { env.GIT_BRANCH == 'origin/development' }
-                    }
-                }
-            }
-            steps {
-                script {
-                    echo "✅ Tests passed! Merging to master..."
-                    
-                    withCredentials([usernamePassword(
-                        credentialsId: env.GITHUB_CREDENTIALS,
-                        usernameVariable: 'GIT_USERNAME',
-                        passwordVariable: 'GIT_PASSWORD'
-                    )]) {
-                        bat """
-                            git config user.name "Jenkins CI"
-                            git config user.email "jenkins@cicd.local"
-                            git fetch origin
-                            git checkout master
-                            git pull origin master
-                            git merge origin/development --no-ff -m "Auto-merge: Tests Passed ✓"
-                            git push https://%GIT_USERNAME%:%GIT_PASSWORD%@github.com/%REPO_OWNER%/%REPO_NAME%.git master
+                            
+                            echo.
+                            echo ==========================================
+                            echo   SUCCESS! PR #${env.CHANGE_ID} MERGED
+                            echo   Railway and Vercel deploying...
+                            echo ==========================================
                         """
                     }
                 }
@@ -119,10 +128,34 @@ pipeline {
     
     post {
         success {
-            echo '✅ BUILD SUCCESSFUL - Tests passed and merged!'
+            script {
+                echo '================================================'
+                echo '✅ BUILD SUCCESSFUL!'
+                echo '================================================'
+                if (env.CHANGE_ID) {
+                    echo "PR #${env.CHANGE_ID} tests passed ✓"
+                    echo "Merged development → master ✓"
+                    echo 'Railway & Vercel deploying ✓'
+                } else {
+                    echo 'Tests passed ✓'
+                }
+                echo '================================================'
+            }
         }
         failure {
-            echo '❌ BUILD FAILED - Tests failed, NOT merged'
+            script {
+                echo '================================================'
+                echo '❌ BUILD FAILED!'
+                echo '================================================'
+                if (env.CHANGE_ID) {
+                    echo "PR #${env.CHANGE_ID} tests FAILED ❌"
+                    echo 'PR will NOT be merged'
+                } else {
+                    echo 'Tests failed ❌'
+                }
+                echo 'Please fix issues and try again'
+                echo '================================================'
+            }
         }
         always {
             cleanWs()
