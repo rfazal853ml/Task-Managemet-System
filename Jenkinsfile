@@ -11,17 +11,15 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
-                echo "Building branch: ${env.GIT_BRANCH}"
+                echo "Building PR from ${env.CHANGE_BRANCH} to ${env.CHANGE_TARGET}"
             }
         }
         
         stage('Verify Structure') {
             steps {
                 bat '''
-                    echo === Repository Structure ===
                     dir
                     echo.
-                    echo === Backend Folder Contents ===
                     dir backend
                 '''
             }
@@ -31,14 +29,8 @@ pipeline {
             steps {
                 bat '''
                     cd backend
-                    echo === Upgrading pip ===
                     python -m pip install --upgrade pip
-                    echo.
-                    echo === Installing requirements ===
                     pip install -r requirements.txt
-                    echo.
-                    echo === Installed packages ===
-                    pip list
                 '''
             }
         }
@@ -47,22 +39,21 @@ pipeline {
             steps {
                 bat '''
                     cd backend
-                    echo === Running pytest ===
-                    pytest test_api.py -v --cov=main --cov-report=term --cov-report=xml
+                    pytest test_api.py -v --cov=main --cov-report=term
                 '''
             }
         }
         
-        stage('Merge to Main') {
+        stage('Merge PR') {
             when {
-                anyOf {
-                    branch 'development'
-                    expression { env.GIT_BRANCH == 'origin/development' }
+                allOf {
+                    expression { env.CHANGE_TARGET == 'main' }
+                    expression { env.CHANGE_BRANCH == 'development' }
                 }
             }
             steps {
                 script {
-                    echo "✅ All tests passed! Merging development → main"
+                    echo "✅ Tests passed! Auto-merging PR..."
                     
                     withCredentials([usernamePassword(
                         credentialsId: env.GITHUB_CREDENTIALS,
@@ -76,16 +67,8 @@ pipeline {
                             git fetch origin
                             git checkout main
                             git pull origin main
-                            
-                            git merge origin/development --no-ff -m "Auto-merge: development -> main [Jenkins CI - Tests Passed]"
-                            
+                            git merge origin/development --no-ff -m "Auto-merge PR: Tests Passed ✓"
                             git push https://%GIT_USERNAME%:%GIT_PASSWORD%@github.com/%REPO_OWNER%/%REPO_NAME%.git main
-                            
-                            echo.
-                            echo ========================================
-                            echo   MERGE SUCCESSFUL!
-                            echo   Railway and Vercel will auto-deploy
-                            echo ========================================
                         """
                     }
                 }
@@ -95,20 +78,10 @@ pipeline {
     
     post {
         success {
-            echo '================================================'
-            echo '✅ BUILD SUCCESSFUL!'
-            echo '================================================'
-            echo 'All tests passed ✓'
-            echo 'Merged to main branch ✓'
-            echo 'Auto-deployment triggered ✓'
-            echo '================================================'
+            echo '✅ Tests passed and PR merged!'
         }
         failure {
-            echo '================================================'
-            echo '❌ BUILD FAILED!'
-            echo '================================================'
-            echo 'Check console output for error details'
-            echo '================================================'
+            echo '❌ Tests failed - PR NOT merged'
         }
         always {
             cleanWs()
