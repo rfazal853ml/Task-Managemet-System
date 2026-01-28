@@ -3,9 +3,8 @@ pipeline {
     
     environment {
         GITHUB_CREDENTIALS = 'github-credentials'
-        GITHUB_API_URL = 'https://api.github.com'
-        REPO_OWNER = 'YOUR_USERNAME'
-        REPO_NAME = 'YOUR_REPO'
+        REPO_OWNER = 'rfazal853ml'
+        REPO_NAME = 'Task-Managemet-System'
     }
     
     stages {
@@ -13,50 +12,104 @@ pipeline {
             steps {
                 checkout scm
                 script {
-                    // Get PR number from environment
-                    env.PR_NUMBER = sh(
-                        script: "echo ${env.CHANGE_ID}",
-                        returnStdout: true
-                    ).trim()
-                    echo "Processing PR #${env.PR_NUMBER}"
+                    echo "Building branch: ${env.GIT_BRANCH}"
+                    if (env.CHANGE_ID) {
+                        echo "PR #${env.CHANGE_ID}: ${env.CHANGE_BRANCH} → ${env.CHANGE_TARGET}"
+                    }
                 }
             }
         }
         
-        stage('Install Dependencies') {
+        stage('Setup Virtual Environment') {
             steps {
-                sh '''
-                    python3 -m pip install --upgrade pip
+                bat '''
+                    cd backend
+                    echo === Creating virtual environment ===
+                    python -m venv venv
+                    echo.
+                    echo === Activating virtual environment ===
+                    call venv\\Scripts\\activate.bat
+                    echo.
+                    echo === Upgrading pip ===
+                    python -m pip install --upgrade pip
+                    echo.
+                    echo === Installing requirements ===
                     pip install -r requirements.txt
+                    echo.
+                    echo === Installed packages ===
+                    pip list
                 '''
             }
         }
         
         stage('Run Tests') {
             steps {
-                sh 'pytest test_api.py -v --cov=main'
+                bat '''
+                    cd backend
+                    call venv\\Scripts\\activate.bat
+                    echo === Running pytest ===
+                    pytest test_api.py -v --cov=main --cov-report=term
+                '''
             }
         }
         
         stage('Merge PR') {
             when {
-                expression {
-                    return env.CHANGE_TARGET == 'main' && 
-                           env.CHANGE_BRANCH == 'development'
+                allOf {
+                    expression { env.CHANGE_TARGET == 'master' }
+                    expression { env.CHANGE_BRANCH == 'development' }
                 }
             }
             steps {
                 script {
-                    withCredentials([string(
-                        credentialsId: GITHUB_CREDENTIALS,
-                        variable: 'GITHUB_TOKEN'
+                    echo "✅ Tests passed! Merging PR..."
+                    
+                    withCredentials([usernamePassword(
+                        credentialsId: env.GITHUB_CREDENTIALS,
+                        usernameVariable: 'GIT_USERNAME',
+                        passwordVariable: 'GIT_PASSWORD'
                     )]) {
-                        sh """
-                            curl -X PUT \
-                              -H "Authorization: token ${GITHUB_TOKEN}" \
-                              -H "Accept: application/vnd.github.v3+json" \
-                              ${GITHUB_API_URL}/repos/${REPO_OWNER}/${REPO_NAME}/pulls/${env.PR_NUMBER}/merge \
-                              -d '{"commit_title":"Auto-merge by Jenkins","merge_method":"merge"}'
+                        bat """
+                            git config user.name "Jenkins CI"
+                            git config user.email "jenkins@cicd.local"
+                            git fetch origin
+                            git checkout master
+                            git pull origin master
+                            git merge origin/development --no-ff -m "Auto-merge PR: Tests Passed ✓"
+                            git push https://%GIT_USERNAME%:%GIT_PASSWORD%@github.com/%REPO_OWNER%/%REPO_NAME%.git master
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Merge Direct Push') {
+            when {
+                allOf {
+                    expression { env.CHANGE_ID == null }
+                    anyOf {
+                        branch 'development'
+                        expression { env.GIT_BRANCH == 'origin/development' }
+                    }
+                }
+            }
+            steps {
+                script {
+                    echo "✅ Tests passed! Merging to master..."
+                    
+                    withCredentials([usernamePassword(
+                        credentialsId: env.GITHUB_CREDENTIALS,
+                        usernameVariable: 'GIT_USERNAME',
+                        passwordVariable: 'GIT_PASSWORD'
+                    )]) {
+                        bat """
+                            git config user.name "Jenkins CI"
+                            git config user.email "jenkins@cicd.local"
+                            git fetch origin
+                            git checkout master
+                            git pull origin master
+                            git merge origin/development --no-ff -m "Auto-merge: Tests Passed ✓"
+                            git push https://%GIT_USERNAME%:%GIT_PASSWORD%@github.com/%REPO_OWNER%/%REPO_NAME%.git master
                         """
                     }
                 }
@@ -66,29 +119,13 @@ pipeline {
     
     post {
         success {
-            script {
-                echo "✅ All tests passed!"
-                // Update PR status
-                updateGitHubStatus('success', 'All tests passed')
-            }
+            echo '✅ BUILD SUCCESSFUL - Tests passed and merged!'
         }
         failure {
-            script {
-                echo "❌ Tests failed!"
-                updateGitHubStatus('failure', 'Tests failed')
-            }
+            echo '❌ BUILD FAILED - Tests failed, NOT merged'
         }
-    }
-}
-
-def updateGitHubStatus(state, description) {
-    withCredentials([string(credentialsId: env.GITHUB_CREDENTIALS, variable: 'GITHUB_TOKEN')]) {
-        sh """
-            curl -X POST \
-              -H "Authorization: token ${GITHUB_TOKEN}" \
-              -H "Accept: application/vnd.github.v3+json" \
-              ${env.GITHUB_API_URL}/repos/${env.REPO_OWNER}/${env.REPO_NAME}/statuses/${env.GIT_COMMIT} \
-              -d '{"state":"${state}","description":"${description}","context":"Jenkins CI"}'
-        """
+        always {
+            cleanWs()
+        }
     }
 }
