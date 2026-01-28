@@ -3,60 +3,89 @@ pipeline {
     
     environment {
         GITHUB_CREDENTIALS = 'github-credentials'
-        GITHUB_API_URL = 'https://api.github.com'
-        REPO_OWNER = 'YOUR_USERNAME'
-        REPO_NAME = 'YOUR_REPO'
+        REPO_OWNER = 'rfazal853ml'
+        REPO_NAME = 'Task-Managemet-System'
     }
     
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
-                script {
-                    // Get PR number from environment
-                    env.PR_NUMBER = sh(
-                        script: "echo ${env.CHANGE_ID}",
-                        returnStdout: true
-                    ).trim()
-                    echo "Processing PR #${env.PR_NUMBER}"
-                }
+                echo "Building branch: ${env.GIT_BRANCH}"
+            }
+        }
+        
+        stage('Verify Structure') {
+            steps {
+                bat '''
+                    echo === Repository Structure ===
+                    dir
+                    echo.
+                    echo === Backend Folder Contents ===
+                    dir backend
+                '''
             }
         }
         
         stage('Install Dependencies') {
             steps {
-                sh '''
-                    python3 -m pip install --upgrade pip
+                bat '''
+                    cd backend
+                    echo === Upgrading pip ===
+                    python -m pip install --upgrade pip
+                    echo.
+                    echo === Installing requirements ===
                     pip install -r requirements.txt
+                    echo.
+                    echo === Installed packages ===
+                    pip list
                 '''
             }
         }
         
         stage('Run Tests') {
             steps {
-                sh 'pytest test_api.py -v --cov=main'
+                bat '''
+                    cd backend
+                    echo === Running pytest ===
+                    pytest test_api.py -v --cov=main --cov-report=term --cov-report=xml
+                '''
             }
         }
         
-        stage('Merge PR') {
+        stage('Merge to Main') {
             when {
-                expression {
-                    return env.CHANGE_TARGET == 'main' && 
-                           env.CHANGE_BRANCH == 'development'
+                anyOf {
+                    branch 'development'
+                    expression { env.GIT_BRANCH == 'origin/development' }
                 }
             }
             steps {
                 script {
-                    withCredentials([string(
-                        credentialsId: GITHUB_CREDENTIALS,
-                        variable: 'GITHUB_TOKEN'
+                    echo "✅ All tests passed! Merging development → main"
+                    
+                    withCredentials([usernamePassword(
+                        credentialsId: env.GITHUB_CREDENTIALS,
+                        usernameVariable: 'GIT_USERNAME',
+                        passwordVariable: 'GIT_PASSWORD'
                     )]) {
-                        sh """
-                            curl -X PUT \
-                              -H "Authorization: token ${GITHUB_TOKEN}" \
-                              -H "Accept: application/vnd.github.v3+json" \
-                              ${GITHUB_API_URL}/repos/${REPO_OWNER}/${REPO_NAME}/pulls/${env.PR_NUMBER}/merge \
-                              -d '{"commit_title":"Auto-merge by Jenkins","merge_method":"merge"}'
+                        bat """
+                            git config user.name "Jenkins CI"
+                            git config user.email "jenkins@cicd.local"
+                            
+                            git fetch origin
+                            git checkout main
+                            git pull origin main
+                            
+                            git merge origin/development --no-ff -m "Auto-merge: development -> main [Jenkins CI - Tests Passed]"
+                            
+                            git push https://%GIT_USERNAME%:%GIT_PASSWORD%@github.com/%REPO_OWNER%/%REPO_NAME%.git main
+                            
+                            echo.
+                            echo ========================================
+                            echo   MERGE SUCCESSFUL!
+                            echo   Railway and Vercel will auto-deploy
+                            echo ========================================
                         """
                     }
                 }
@@ -66,29 +95,23 @@ pipeline {
     
     post {
         success {
-            script {
-                echo "✅ All tests passed!"
-                // Update PR status
-                updateGitHubStatus('success', 'All tests passed')
-            }
+            echo '================================================'
+            echo '✅ BUILD SUCCESSFUL!'
+            echo '================================================'
+            echo 'All tests passed ✓'
+            echo 'Merged to main branch ✓'
+            echo 'Auto-deployment triggered ✓'
+            echo '================================================'
         }
         failure {
-            script {
-                echo "❌ Tests failed!"
-                updateGitHubStatus('failure', 'Tests failed')
-            }
+            echo '================================================'
+            echo '❌ BUILD FAILED!'
+            echo '================================================'
+            echo 'Check console output for error details'
+            echo '================================================'
         }
-    }
-}
-
-def updateGitHubStatus(state, description) {
-    withCredentials([string(credentialsId: env.GITHUB_CREDENTIALS, variable: 'GITHUB_TOKEN')]) {
-        sh """
-            curl -X POST \
-              -H "Authorization: token ${GITHUB_TOKEN}" \
-              -H "Accept: application/vnd.github.v3+json" \
-              ${env.GITHUB_API_URL}/repos/${env.REPO_OWNER}/${env.REPO_NAME}/statuses/${env.GIT_COMMIT} \
-              -d '{"state":"${state}","description":"${description}","context":"Jenkins CI"}'
-        """
+        always {
+            cleanWs()
+        }
     }
 }
