@@ -2,26 +2,31 @@ pipeline {
     agent any
     
     environment {
-        VENV_PATH = 'venv'
+        GITHUB_CREDENTIALS = 'github-credentials'
+        GITHUB_API_URL = 'https://api.github.com'
+        REPO_OWNER = 'YOUR_USERNAME'
+        REPO_NAME = 'YOUR_REPO'
     }
     
     stages {
         stage('Checkout') {
             steps {
-                echo 'Checking out code from GitHub...'
                 checkout scm
+                script {
+                    // Get PR number from environment
+                    env.PR_NUMBER = sh(
+                        script: "echo ${env.CHANGE_ID}",
+                        returnStdout: true
+                    ).trim()
+                    echo "Processing PR #${env.PR_NUMBER}"
+                }
             }
         }
         
-        stage('Setup Environment') {
+        stage('Install Dependencies') {
             steps {
-                echo 'Setting up Python virtual environment...'
-                bat '''
-                    cd backend
-                    if exist venv rmdir /s /q venv
-                    python -m venv venv
-                    call venv\\Scripts\\activate.bat
-                    python -m pip install --upgrade pip
+                sh '''
+                    python3 -m pip install --upgrade pip
                     pip install -r requirements.txt
                 '''
             }
@@ -29,84 +34,61 @@ pipeline {
         
         stage('Run Tests') {
             steps {
-                echo 'Running tests...'
-                bat '''
-                    cd backend
-                    call venv\\Scripts\\activate.bat
-                    pytest test_api.py -v --junitxml=test-results.xml --cov=main --cov-report=xml --cov-report=html
-                '''
+                sh 'pytest test_api.py -v --cov=main'
             }
         }
         
-        stage('Code Quality') {
-            steps {
-                echo 'Running code quality checks...'
-                bat '''
-                    cd backend
-                    call venv\\Scripts\\activate.bat
-                    pip install pylint || echo "Pylint not required"
-                '''
-            }
-        }
-        
-        stage('Merge to Master') {
+        stage('Merge PR') {
             when {
-                branch 'development'
-                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
-            }
-            steps {
-                echo '✅ All tests passed! Merging to master for deployment...'
-                script {
-                    bat '''
-                        git config user.name "Jenkins CI"
-                        git config user.email "jenkins@yourdomain.com"
-                        git checkout master
-                        git merge development --no-ff -m "Auto-merge: Tests passed on development"
-                        git push origin master
-                    '''
+                expression {
+                    return env.CHANGE_TARGET == 'main' && 
+                           env.CHANGE_BRANCH == 'development'
                 }
             }
-        }
-        
-        stage('Deployment Notification') {
-            when {
-                branch 'development'
-                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
-            }
             steps {
-                echo '╔════════════════════════════════════════╗'
-                echo '║   🚀 DEPLOYING TO PRODUCTION 🚀       ║'
-                echo '╚════════════════════════════════════════╝'
-                echo 'Railway auto-deploying backend from master...'
-                echo 'Vercel auto-deploying frontend from master...'
-                echo ''
-                echo 'Live URLs:'
-                echo 'Backend:  https://task-managemet-system-production.up.railway.app'
-                echo 'Frontend: https://task-management-system-iota-five.vercel.app'
+                script {
+                    withCredentials([string(
+                        credentialsId: GITHUB_CREDENTIALS,
+                        variable: 'GITHUB_TOKEN'
+                    )]) {
+                        sh """
+                            curl -X PUT \
+                              -H "Authorization: token ${GITHUB_TOKEN}" \
+                              -H "Accept: application/vnd.github.v3+json" \
+                              ${GITHUB_API_URL}/repos/${REPO_OWNER}/${REPO_NAME}/pulls/${env.PR_NUMBER}/merge \
+                              -d '{"commit_title":"Auto-merge by Jenkins","merge_method":"merge"}'
+                        """
+                    }
+                }
             }
         }
     }
     
     post {
-        always {
-            echo 'Cleaning up...'
-            bat '''
-                taskkill /F /IM python.exe 2>nul || exit 0
-            '''
-        }
         success {
-            echo '╔════════════════════════════════════════╗'
-            echo '║   ✅ PIPELINE SUCCESSFUL ✅           ║'
-            echo '╚════════════════════════════════════════╝'
-            junit 'backend/test-results.xml'
-            archiveArtifacts artifacts: 'backend/htmlcov/**', allowEmptyArchive: true
+            script {
+                echo "✅ All tests passed!"
+                // Update PR status
+                updateGitHubStatus('success', 'All tests passed')
+            }
         }
         failure {
-            echo '╔════════════════════════════════════════╗'
-            echo '║   ❌ PIPELINE FAILED ❌               ║'
-            echo '║   Code NOT merged to master           ║'
-            echo '║   Production NOT updated              ║'
-            echo '╚════════════════════════════════════════╝'
+            script {
+                echo "❌ Tests failed!"
+                updateGitHubStatus('failure', 'Tests failed')
+            }
         }
+    }
+}
+
+def updateGitHubStatus(state, description) {
+    withCredentials([string(credentialsId: env.GITHUB_CREDENTIALS, variable: 'GITHUB_TOKEN')]) {
+        sh """
+            curl -X POST \
+              -H "Authorization: token ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              ${env.GITHUB_API_URL}/repos/${env.REPO_OWNER}/${env.REPO_NAME}/statuses/${env.GIT_COMMIT} \
+              -d '{"state":"${state}","description":"${description}","context":"Jenkins CI"}'
+        """
     }
 }
